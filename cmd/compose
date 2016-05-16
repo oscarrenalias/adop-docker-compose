@@ -184,9 +184,16 @@ gen_certs() {
     ####
     # Fresh start
     #### 
-    TEMP_CERT_PATH="${HOME}/docker_certs"
-    rm -rf ${TEMP_CERT_PATH}
-    mkdir -p ${TEMP_CERT_PATH}
+    #TEMP_CERT_PATH="${HOME}/docker_certs"
+    #rm -rf ${TEMP_CERT_PATH}
+    #mkdir -p ${TEMP_CERT_PATH}
+    TEMP_CERT_PATH=$(mktemp -d)
+
+    # copy of the docker machine certs to the temp folder; we need to do this instead of operating directly
+    # on $HOME because for some strange reason, OpenSSL on OS X has troubles generating files in folders
+    # that contain a dot in the path
+    cp ${HOME}/.docker/machine/certs/ca.pem ${TEMP_CERT_PATH}/machine_ca.pem
+    cp ${HOME}/.docker/machine/certs/ca-key.pem ${TEMP_CERT_PATH}/machine_ca-key.pem
 
     ####
     # * Generate the client private key
@@ -197,7 +204,11 @@ gen_certs() {
     openssl genrsa -out ${TEMP_CERT_PATH}/key.pem 4096 &> /dev/null
     openssl req -subj "${CLIENT_SUBJ}" -new -key ${TEMP_CERT_PATH}/key.pem -out ${TEMP_CERT_PATH}/client.csr &> /dev/null
     echo "extendedKeyUsage = clientAuth" >  ${TEMP_CERT_PATH}/extfile.cnf
-    openssl x509 -req -days 365 -sha256 -in ${TEMP_CERT_PATH}/client.csr -CA ${HOME}/.docker/machine/certs/ca.pem -CAkey ${HOME}/.docker/machine/certs/ca-key.pem -CAcreateserial -out ${TEMP_CERT_PATH}/cert.pem -extfile ${TEMP_CERT_PATH}/extfile.cnf &> /dev/null
+    openssl x509 -req -days 365 -sha256 -in ${TEMP_CERT_PATH}/client.csr \
+            -CA ${TEMP_CERT_PATH}/machine_ca.pem \
+            -CAkey $TEMP_CERT_PATH/machine_ca-key.pem \
+            -CAcreateserial -out ${TEMP_CERT_PATH}/cert.pem \
+            -extfile ${TEMP_CERT_PATH}/extfile.cnf &> /dev/null
     set -e
     CERT_FILE="${TEMP_CERT_PATH}/cert.pem"
     if [[ -s $CERT_FILE ]]; then
@@ -236,6 +247,9 @@ gen_certs() {
     docker exec jenkins-slave rm -rf ${CERT_PATH}
     docker cp ${TEMP_CERT_PATH} jenkins-slave:${CERT_PATH}
     set -e
+
+    # remove the temporary folder when done
+    #rm -rf ${TEMP_CERT_PATH}
 }
 
 run_compose() {
